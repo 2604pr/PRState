@@ -1,0 +1,214 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PRSTATE Generator</title>
+  <style>
+  body {
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    padding: 30px;
+    background: #0d1117;
+    color: #c9d1d9;
+    line-height: 1.6;
+  }
+
+  h1 {
+    font-size: 26px;
+    font-weight: 600;
+    color: #c758ff;
+    margin-bottom: 20px;
+  }
+
+  input[type="file"] {
+    background: #161b22;
+    border: 1px solid #30363d;
+    padding: 10px;
+    border-radius: 6px;
+    color: #c9d1d9;
+    cursor: pointer;
+    margin-right: 10px;
+  }
+
+  button {
+    background: #238636;
+    color: #fff;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-right: 10px;
+    transition: background 0.2s ease-in-out;
+    font-weight: 500;
+  }
+
+  button:hover {
+    background: #2ea043;
+  }
+
+  textarea {
+    width: 100%;
+    height: 350px;
+    margin-top: 20px;
+    background: #161b22;
+    color: #f0f6fc;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 12px;
+    font-family: monospace;
+    font-size: 14px;
+    resize: vertical;
+    white-space: pre;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0d1117;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+  }
+</style>
+
+</head>
+<body>
+  <h1>PRSTATE Processor</h1>
+  <input type="file" id="fileInput" accept=".txt">
+  <button onclick="processFile()">Process</button>
+  <button onclick="downloadOutput()">Download Output</button>
+  <textarea id="output" readonly></textarea>
+
+  <script>
+    const volumeRanges = [
+      { vol: 1, min: 0, max: 102 },
+      { vol: 2, min: 103, max: 103 },
+      { vol: 3, min: 104, max: 140 },
+      { vol: 4, min: 141, max: 201 },
+      { vol: 5, min: 202, max: 225 },
+      { vol: 6, min: 226, max: 253 },
+      { vol: 7, min: 254, max: 277 },
+      { vol: 8, min: 278, max: 304 },
+      { vol: 9, min: 305, max: 325 },
+      { vol: 10, min: 326, max: 354 },
+      { vol: 11, min: 355, max: 386 },
+      { vol: 12, min: 387, max: 421 },
+      { vol: 13, min: 422, max: 453 },
+      { vol: 14, min: 454, max: 502 },
+      { vol: 15, min: 503, max: 527 },
+      { vol: 16, min: 528, max: 571 },
+      { vol: 17, min: 572, max: 573 },
+      { vol: 18, min: 574, max: 603 },
+      { vol: 19, min: 604, max: 629 },
+      { vol: 20, min: 630, max: 657 },
+      { vol: 21, min: 658, max: 691 },
+      { vol: 22, min: 692, max: 723 },
+      { vol: 23, min: 724, max: 775 },
+      { vol: 24, min: 776, max: 821 },
+      { vol: 25, min: 822, max: 867 },
+      { vol: 26, min: 868, max: 917 },
+      { vol: 27, min: 918, max: 955 },
+      { vol: 28, min: 956, max: 1060 },
+      { vol: 29, min: 1061, max: 1126 },
+      { vol: 30, min: 1127, max: 1257 },
+      { vol: 31, min: 1258, max: 1357 },
+      { vol: 32, min: 1358, max: 1999 }
+    ];
+
+    function getVolume(branchCode) {
+      const num = parseInt(branchCode, 10);
+      for (let range of volumeRanges) {
+        if (num >= range.min && num <= range.max) {
+          return range.vol;
+        }
+      }
+      return null;
+    }
+
+    function getDateString() {
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, "0");
+      const monthNames = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+      const month = monthNames[now.getMonth()];
+      return `${day}${month}`;
+    }
+
+    let finalOutput = "";
+
+    function processFile() {
+      const fileInput = document.getElementById("fileInput");
+      const outputArea = document.getElementById("output");
+      if (!fileInput.files.length) {
+        alert("Please upload accounts.txt file");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const fileContent = e.target.result;
+        const accounts = fileContent
+                        .split(/\r?\n/)
+                        .map(line => line.trim())  
+                        .filter(Boolean);
+
+        const volumeToAccounts = {};
+        const uniqueVolumes = new Set();
+
+        accounts.forEach(acc => {
+          const [branch] = acc.split("/");
+          const vol = getVolume(branch);
+          if (vol) {
+            if (!volumeToAccounts[vol]) volumeToAccounts[vol] = [];
+            volumeToAccounts[vol].push(acc.trim());
+            uniqueVolumes.add(vol);
+          }
+        });
+
+        const dateStr = getDateString();
+        const sortedVolumes = Array.from(uniqueVolumes).sort((a, b) => a - b);
+
+        let result = "";
+
+        // First print runstreams
+        sortedVolumes.forEach(vol => {
+          result += `PROG*NPSRUN.PRSTATE/${dateStr}-V${String(vol).padStart(2, "0")}\n`;
+        });
+
+        result += "\n"; // separator
+
+        // Then print accounts grouped by volume
+        sortedVolumes.forEach(vol => {
+          result += `--- Volume ${String(vol).padStart(2, "0")} ---\n`;
+          volumeToAccounts[vol].sort().forEach(acc => {
+            result += acc + "\n";
+          });
+          result += "\n";
+        });
+
+        finalOutput = result;
+        outputArea.value = result;
+      };
+      reader.readAsText(fileInput.files[0]);
+    }
+
+    function downloadOutput() {
+      if (!finalOutput) {
+        alert("Please process a file first!");
+        return;
+      }
+      const blob = new Blob([finalOutput], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "output.txt";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
