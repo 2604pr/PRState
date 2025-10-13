@@ -517,35 +517,40 @@ ${accounts.join("\n")}
   const omsQualifier = document.getElementById("omsQualifier").value.trim() || "SYS$$$";
   const zip = new JSZip();
 
+  // Add text files inside the zip
   for (const [vol, accs] of Object.entries(volumeAccountsMap)) {
     const content = templateBase(vol, omsQualifier, accs);
+    // Store as UTF-8 text
     zip.file(`Volume_${String(vol).padStart(2, "0")}.txt`, content, { binary: false });
   }
 
   const dateStr = getDateString();
 
-  // ✅ Correct MIME type + ensure binary data
+  // ✅ Properly generate binary ZIP blob
   const blob = await zip.generateAsync({
     type: "blob",
     mimeType: "application/zip",
-    compression: "DEFLATE", // smaller and fully compatible
-    compressionOptions: { level: 6 }
+    compression: "DEFLATE",
+    compressionOptions: { level: 9 }
   });
 
-  // ✅ Create and trigger download
-  const url = URL.createObjectURL(blob);
+  // ✅ Force download with correct MIME
   const a = document.createElement("a");
+  const url = URL.createObjectURL(blob);
   a.href = url;
   a.download = `PRSTATE_${dateStr}.zip`;
+
+  // Some browsers need this anchor to be in DOM
   document.body.appendChild(a);
   a.click();
 
-  // ✅ Delay revoking URL to ensure the file fully saves
+  // ✅ Cleanup after download
   setTimeout(() => {
     URL.revokeObjectURL(url);
     a.remove();
   }, 5000);
 }
+
 
 
   </script>
