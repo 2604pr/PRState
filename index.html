@@ -517,34 +517,30 @@ ${accounts.join("\n")}
   const omsQualifier = document.getElementById("omsQualifier").value.trim() || "SYS$$$";
   const zip = new JSZip();
 
-  // Add text files inside the zip
   for (const [vol, accs] of Object.entries(volumeAccountsMap)) {
     const content = templateBase(vol, omsQualifier, accs);
-    // Store as UTF-8 text
     zip.file(`Volume_${String(vol).padStart(2, "0")}.txt`, content, { binary: false });
   }
 
   const dateStr = getDateString();
 
-  // ✅ Properly generate binary ZIP blob
+  // ✅ Correct MIME type + ensure binary data
   const blob = await zip.generateAsync({
     type: "blob",
     mimeType: "application/zip",
-    compression: "DEFLATE",
-    compressionOptions: { level: 9 }
+    compression: "DEFLATE", // smaller and fully compatible
+    compressionOptions: { level: 6 }
   });
 
-  // ✅ Force download with correct MIME
-  const a = document.createElement("a");
+  // ✅ Create and trigger download
   const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
   a.href = url;
   a.download = `PRSTATE_${dateStr}.zip`;
-
-  // Some browsers need this anchor to be in DOM
   document.body.appendChild(a);
   a.click();
 
-  // ✅ Cleanup after download
+  // ✅ Delay revoking URL to ensure the file fully saves
   setTimeout(() => {
     URL.revokeObjectURL(url);
     a.remove();
@@ -552,6 +548,30 @@ ${accounts.join("\n")}
 }
 
 
+async function saveTxtFilesToFolder() {
+  if (!Object.keys(volumeAccountsMap).length) {
+    alert("Please process a file first!");
+    return;
+  }
+
+  const dirHandle = await window.showDirectoryPicker();
+  const omsQualifier = document.getElementById("omsQualifier").value.trim() || "SYS$$$";
+  const dateStr = getDateString();
+
+  for (const [vol, accs] of Object.entries(volumeAccountsMap)) {
+    const content = templateBase(vol, omsQualifier, accs);
+    const fileHandle = await dirHandle.getFileHandle(
+      `PRSTATE_V${String(vol).padStart(2, "0")}_${dateStr}.txt`,
+      { create: true }
+    );
+    const writable = await fileHandle.createWritable();
+    await writable.write(content);
+    await writable.close();
+  }
+
+  alert("All files saved successfully in selected folder!");
+}
+<button onclick="saveTxtFilesToFolder()">Save to Folder</button>
 
   </script>
 </body>

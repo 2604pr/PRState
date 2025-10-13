@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PRSTATE Generator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body {
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      padding: 30px;
+      background: #0d1117;
+      color: #c9d1d9;
+      line-height: 1.6;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 600;
+      color: #c758ff;
+      margin-bottom: 20px;
+    }
+    input[type="file"] {
+      background: #161b22;
+      border: 1px solid #30363d;
+      padding: 10px;
+      border-radius: 6px;
+      color: #c9d1d9;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    button {
+      background: #238636;
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 10px;
+      transition: background 0.2s ease-in-out;
+      font-weight: 500;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    textarea {
+      width: 100%;
+      height: 350px;
+      margin-top: 20px;
+      background: #161b22;
+      color: #f0f6fc;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 14px;
+      resize: vertical;
+      white-space: pre;
+    }
+  </style>
+</head>
+<body>
+  <h1>PRSTATE Processor</h1>
+  <input type="file" id="fileInput" accept=".txt">
+  <button onclick="processFile()">Process</button>
+  <input type="text" id="omsQualifier" placeholder="Enter OMS DISK Qualifier (default SYS$$$)" 
+         style="margin-left:10px;padding:8px;border-radius:6px;border:1px solid #30363d;background:#161b22;color:#c9d1d9;width:260px;">
+  <button onclick="downloadOutput()">Download Output</button>
+  <button onclick="downloadVolumeFiles()">Download ZIP</button>
+  <button onclick="saveTxtFilesToFolder()">Save to Folder</button>
+  <textarea id="output" readonly></textarea>
+
+  <script>
+    const volumeRanges = [
+      { vol: 1, min: 0, max: 102 }, { vol: 2, min: 103, max: 103 }, { vol: 3, min: 104, max: 140 },
+      { vol: 4, min: 141, max: 201 }, { vol: 5, min: 202, max: 225 }, { vol: 6, min: 226, max: 253 },
+      { vol: 7, min: 254, max: 277 }, { vol: 8, min: 278, max: 304 }, { vol: 9, min: 305, max: 325 },
+      { vol: 10, min: 326, max: 354 }, { vol: 11, min: 355, max: 386 }, { vol: 12, min: 387, max: 421 },
+      { vol: 13, min: 422, max: 453 }, { vol: 14, min: 454, max: 502 }, { vol: 15, min: 503, max: 527 },
+      { vol: 16, min: 528, max: 571 }, { vol: 17, min: 572, max: 573 }, { vol: 18, min: 574, max: 603 },
+      { vol: 19, min: 604, max: 629 }, { vol: 20, min: 630, max: 657 }, { vol: 21, min: 658, max: 691 },
+      { vol: 22, min: 692, max: 723 }, { vol: 23, min: 724, max: 775 }, { vol: 24, min: 776, max: 821 },
+      { vol: 25, min: 822, max: 867 }, { vol: 26, min: 868, max: 917 }, { vol: 27, min: 918, max: 955 },
+      { vol: 28, min: 956, max: 1060 }, { vol: 29, min: 1061, max: 1126 }, { vol: 30, min: 1127, max: 1257 },
+      { vol: 31, min: 1258, max: 1357 }, { vol: 32, min: 1358, max: 1999 }
+    ];
+
+    const getVolume = (code) => {
+      const n = parseInt(code, 10);
+      return volumeRanges.find(r => n >= r.min && n <= r.max)?.vol || null;
+    };
+    const getDateString = () => {
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, "0");
+      const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+      return `${day}${months[now.getMonth()]}`;
+    };
+
+    let finalOutput = "", volumeAccountsMap = {};
+
+    function processFile() {
+      const fileInput = document.getElementById("fileInput");
+      const output = document.getElementById("output");
+      if (!fileInput.files.length) return alert("Please upload accounts.txt file");
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        const lines = e.target.result.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const volMap = {};
+        lines.forEach(acc => {
+          const [branch] = acc.split("/");
+          const vol = getVolume(branch);
+          if (vol) (volMap[vol] ??= []).push(acc);
+        });
+        volumeAccountsMap = volMap;
+
+        const dateStr = getDateString();
+        const sorted = Object.keys(volMap).sort((a,b)=>a-b);
+        let result = "";
+        sorted.forEach(v => result += `PROG*NPSRUN.PRSTATE/${dateStr}-V${v.padStart(2,"0")}\n`);
+        result += "\n";
+        sorted.forEach(v => {
+          result += `--- Volume ${v.padStart(2,"0")} ---\n${volMap[v].join("\n")}\n\n`;
+        });
+        output.value = finalOutput = result;
+      };
+      reader.readAsText(fileInput.files[0]);
+    }
+
+    function downloadOutput() {
+      if (!finalOutput) return alert("Please process a file first!");
+      const blob = new Blob([finalOutput], { type: "text/plain" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `PRState_${getDateString()}.txt`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    const templateBase = (vol, oms, accs) => `@RUN     PR1000,NBSPRG,${getDateString()}V${String(vol).padStart(2,"0")}
+@ . STATEMENTS APPEAR IN FILE     J${String(vol).padStart(2,"0")}*STATESTAPRXX.
+@DELETE,C PRBK.
+@ASG,UP  PRBK.
+@BRKPT   PRINT$,PRBK.
+@ . 
+@COPY,R  SYS$*ASCIIREL.PRSTATE,TPF$.
+@COPY,R  SYS$*ASCIIREL.PRSTATSYSDTA,TPF$.
+@ . 
+@ED,I TPF$.CARDS/MTF
+READ VOLUMES ${String(vol).padStart(2,"0")}
+MODULES ''TPF$.PRSTATE''
+OMS DISK ${oms}
+ADDRESS
+STATEMENTS NOT REQUIRED FOR PRINTING
+
+EXI
+@COPY,S  AIDS*AABS.SSG/MTF,TPF$.
+@ED,I .DATA
+${accs.join("\n")}
+@EOF
+@ADD,LP TPF$.SSG/MTF
+@BRKPT PRINT$
+@FIN`;
+
+    async function downloadVolumeFiles() {
+      if (!Object.keys(volumeAccountsMap).length) return alert("Please process a file first!");
+      const oms = document.getElementById("omsQualifier").value.trim() || "SYS$$$";
+      const zip = new JSZip();
+      for (const [v, accs] of Object.entries(volumeAccountsMap))
+        zip.file(`Volume_${v.padStart(2,"0")}.txt`, templateBase(v, oms, accs));
+
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `PRSTATE_${getDateString()}.zip`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+    }
+
+    async function saveTxtFilesToFolder() {
+  if (!Object.keys(volumeAccountsMap).length) {
+    alert("Please process a file first!");
+    return;
+  }
+
+  try {
+    // Ask user to pick the folder once
+    const dirHandle = await window.showDirectoryPicker();
+
+    const omsQualifier = document.getElementById("omsQualifier").value.trim() || "SYS$$$";
+    const dateStr = getDateString();
+
+    // Loop through all volumes
+    for (const [vol, accs] of Object.entries(volumeAccountsMap)) {
+      const content = templateBase(vol, omsQualifier, accs);
+
+      // Generate file name safely
+      const fileName = `PRSTATE_V${String(vol).padStart(2, "0")}_${dateStr}.txt`;
+
+      // Create or open the file
+      const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+
+      // Write contents
+      const writable = await fileHandle.createWritable();
+      await writable.write(content);
+      await writable.close();
+
+      console.log(`✅ Saved ${fileName}`);
+    }
+
+    alert(`All ${Object.keys(volumeAccountsMap).length} volume files have been saved successfully!`);
+  } catch (err) {
+    console.error("❌ Error saving files:", err);
+    alert("Error: Unable to save files. Check console for details.");
+  }
+}
+
+      
+  </script>
+</body>
+</html>
