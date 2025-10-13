@@ -509,31 +509,43 @@ ${accounts.join("\n")}
   };
 
   async function downloadVolumeFiles() {
-    if (!Object.keys(volumeAccountsMap).length) {
-      alert("Please process a file first!");
-      return;
-    }
-
-    const omsQualifier = document.getElementById("omsQualifier").value.trim() || "SYS$$$";
-    const zip = new JSZip();
-
-    for (const [vol, accs] of Object.entries(volumeAccountsMap)) {
-      const content = templateBase(vol, omsQualifier, accs);
-      zip.file(`Volume_${String(vol).padStart(2, "0")}.txt`, content);
-    }
-
-    // Generate and download the zip file
-    const dateStr = getDateString();
-    const blob = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `PRSTATE_${dateStr}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
+  if (!Object.keys(volumeAccountsMap).length) {
+    alert("Please process a file first!");
+    return;
   }
 
+  const omsQualifier = document.getElementById("omsQualifier").value.trim() || "SYS$$$";
+  const zip = new JSZip();
 
+  for (const [vol, accs] of Object.entries(volumeAccountsMap)) {
+    const content = templateBase(vol, omsQualifier, accs);
+    zip.file(`Volume_${String(vol).padStart(2, "0")}.txt`, content, { binary: false });
+  }
+
+  const dateStr = getDateString();
+
+  // ✅ Correct MIME type + ensure binary data
+  const blob = await zip.generateAsync({
+    type: "blob",
+    mimeType: "application/zip",
+    compression: "DEFLATE", // smaller and fully compatible
+    compressionOptions: { level: 6 }
+  });
+
+  // ✅ Create and trigger download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `PRSTATE_${dateStr}.zip`;
+  document.body.appendChild(a);
+  a.click();
+
+  // ✅ Delay revoking URL to ensure the file fully saves
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    a.remove();
+  }, 5000);
+}
 
 
   </script>
