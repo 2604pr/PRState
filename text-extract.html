@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Filter + Split Accounts TXT → CSV/XLSX</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa4b2;--accent:#3b82f6}
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#071126 0%, #071826 100%);color:#e6eef6;padding:24px;min-height:100vh}
+    .card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.04);padding:20px;border-radius:12px;max-width:920px;margin:0 auto;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input,select{padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    .btn{background:var(--accent);border:none;color:white;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn:disabled{opacity:0.5;cursor:not-allowed}
+    .progress{height:12px;background:rgba(255,255,255,0.04);border-radius:8px;overflow:hidden;margin-top:10px}
+    .progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,var(--accent),#60a5fa)}
+    .log{font-family:monospace;background:rgba(0,0,0,0.25);padding:10px;border-radius:8px;max-height:220px;overflow:auto;margin-top:12px;color:#d6e8ff}
+    .small{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>📊 Filter & Split Large Account Files (CSV/XLSX)</h2>
+
+    <div class="row">
+      <div style="flex:1 1 320px">
+        <label>Choose input .txt file</label>
+        <input id="fileIn" type="file" accept=".txt,.csv" />
+      </div>
+      <div style="width:180px">
+        <label>Rows per output file</label>
+        <input id="rowsPerFile" type="number" value="100000" min="1000" />
+      </div>
+      <div style="width:180px">
+        <label>Chunk size (MB)</label>
+        <input id="chunkMB" type="number" value="2" min="0.5" step="0.5" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <div style="flex:1 1 220px">
+        <label>Output format</label>
+        <select id="format">
+          <option value="csv">CSV</option>
+          <option value="xlsx">XLSX</option>
+        </select>
+      </div>
+      <div style="flex:1 1 260px">
+        <label>Filter text (optional)</label>
+        <input id="filterText" placeholder="e.g. 2025 or ,0" />
+      </div>
+      <div style="flex:1 1 220px">
+        <label>Column selector</label>
+        <select id="columnMode">
+          <option value="all">All fields</option>
+          <option value="accno">Only account numbers</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button id="startBtn" class="btn">Start</button>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-top:16px">
+      <div class="small">Progress:</div>
+      <div style="flex:1">
+        <div class="progress"><i id="prog"></i></div>
+      </div>
+      <div id="status" class="small">Idle</div>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <script>
+  (function(){
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const progEl = document.getElementById('prog');
+    const btn = document.getElementById('startBtn');
+
+    function log(msg){ logEl.textContent += msg + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+    function progress(p){ progEl.style.width = p + "%"; }
+    const delay = ms => new Promise(r=>setTimeout(r,ms));
+
+    async function ensureSheetJS(){
+      if(window.XLSX) return;
+      log('📦 Loading XLSX library (SheetJS)...');
+      await new Promise((res, rej)=>{
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+        s.onload = res;
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      log('✅ XLSX library loaded.');
+    }
+
+    async function readChunk(file, start, end){
+      return new Promise((resolve, reject)=>{
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsText(file.slice(start, end));
+      });
+    }
+
+    async function processFile(file, opts){
+      const {rowsPerFile, chunkBytes, outputFormat, filterText, columnMode} = opts;
+      let offset = 0, leftover = "", rows = [], part = 1, total = 0;
+      const size = file.size;
+
+      async function emit(){
+        if(!rows.length) return;
+
+        if(outputFormat === "csv"){
+          const out = rows.join("\r\n") + "\r\n";
+          const blob = new Blob([out], {type:"text/csv"});
+          downloadBlob(blob, `filtered_part_${part++}.csv`);
+        } else {
+          // Convert to array of arrays for XLSX
+          const aoa = rows.map(r => [r]);
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+          const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+          const blob = new Blob([wbout], {type:"application/octet-stream"});
+          downloadBlob(blob, `filtered_part_${part++}.xlsx`);
+        }
+
+        rows = [];
+        await delay(80);
+      }
+
+      while(offset < size){
+        const end = Math.min(size, offset + chunkBytes);
+        const chunk = await readChunk(file, offset, end);
+        offset = end;
+        const text = leftover + chunk;
+        const lines = text.split(/\r?\n/);
+        leftover = lines.pop() || "";
+
+        for(const l of lines){
+          if(!l.trim()) continue;
+          if(filterText && !l.includes(filterText)) continue;
+          if(columnMode === "accno"){
+            const acc = l.split(",")[0].trim();
+            if(acc) rows.push(acc);
+          } else {
+            rows.push(l);
+          }
+          total++;
+          if(rows.length >= rowsPerFile) await emit();
+        }
+
+        progress(Math.round((offset/size)*100));
+        statusEl.textContent = `Processed ${total.toLocaleString()} rows`;
+      }
+
+      if(leftover.trim()){
+        const l = leftover.trim();
+        if(!filterText || l.includes(filterText)){
+          if(columnMode === "accno") rows.push(l.split(",")[0]);
+          else rows.push(l);
+          total++;
+        }
+      }
+
+      await emit();
+      progress(100);
+      statusEl.textContent = `✅ Done: ${total.toLocaleString()} rows`;
+      log(`Done. Total lines matched: ${total.toLocaleString()}`);
+    }
+
+    function downloadBlob(blob, filename){
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+    }
+
+    btn.onclick = async()=>{
+      const file = document.getElementById('fileIn').files[0];
+      if(!file){alert("Choose a file");return;}
+      const format = document.getElementById('format').value;
+      if(format === 'xlsx') await ensureSheetJS();
+
+      btn.disabled = true; logEl.textContent=""; progress(0);
+      await processFile(file,{
+        rowsPerFile:+document.getElementById('rowsPerFile').value,
+        chunkBytes:+document.getElementById('chunkMB').value*1024*1024,
+        outputFormat:format,
+        filterText:document.getElementById('filterText').value.trim(),
+        columnMode:document.getElementById('columnMode').value
+      });
+      btn.disabled = false;
+    };
+  })();
+  </script>
+</body>
+</html>
