@@ -179,9 +179,19 @@
         let result = "";
         sorted.forEach(v => result += `PROG*NPSRUN.PRSTATE/${dateStr}-V${v.padStart(2,"0")}\n`);
         result += "\n";
+        // sorted.forEach(v => {
+        //   result += `--- Volume ${v.padStart(2,"0")} ---\n${volMap[v].join("\n")}\n\n`;
+        // });
+
         sorted.forEach(v => {
+          volMap[v].sort((a, b) => {
+            const aBranch = parseInt(a.split("/")[0]);
+            const bBranch = parseInt(b.split("/")[0]);
+            return aBranch - bBranch;
+          });
           result += `--- Volume ${v.padStart(2,"0")} ---\n${volMap[v].join("\n")}\n\n`;
         });
+
         output.value = finalOutput = result;
       };
       reader.readAsText(fileInput.files[0]);
